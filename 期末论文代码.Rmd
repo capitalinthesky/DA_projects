@@ -1,0 +1,309 @@
+---
+title: "期末论文代码"
+author: "李成宇"
+date: "2024-05-13"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+数据准备，读取CSV文件
+```{r}
+data <- read.csv("douyin_dataset.csv",header = TRUE)
+```
+检查数据是否顺利读取，查看数据框尺寸
+```{r}
+head(data)
+dim(data)
+```
+数据预处理，删除无效字段
+```{r}
+df <- subset(data, select = -c(X))
+head(df)
+dim(df)
+```
+检查处理效果，获取统计信息
+```{r}
+str(df)
+any(is.na(df))  # 检查是否有任何空值
+all(!is.na(df))  # 检查是否所有值都不是空值
+summary(df)
+```
+构建特征指标
+用户特征统计分析
+```{r}
+user_df <- data.frame(
+  uid = numeric(),
+  浏览量 = numeric(),
+  点赞量 = numeric(),
+  观看作者数 = numeric(),
+  观看作品数 = numeric(),
+  观看作品平均时长 = numeric(),
+  观看配乐数 = numeric(),
+  完整观看数 = numeric(),
+  去过的城市数 = numeric(),
+  观看作品城市数 = numeric(),
+  stringsAsFactors = FALSE
+)
+
+user_uid <- data.frame(uid = unique(df$uid))
+user_浏览量 <- aggregate(df$like, by=list(uid=df$uid),length)
+colnames(user_浏览量) <- c("uid", "浏览量")
+user_点赞量 <- aggregate(df$like, by=list(uid=df$uid),sum)
+colnames(user_点赞量) <- c("uid", "点赞量")
+mydata <- merge(user_浏览量, user_点赞量, by = 'uid')
+author_count <- tapply(df$author_id, df$uid, function(x) length(unique(x)))
+user_观看作者数 <- data.frame(uid = names(author_count), 观看作者数 = author_count)
+mydata1 <- merge(mydata, user_观看作者数, by = 'uid')
+item_count <- tapply(df$item_id, df$uid, function(x) length(unique(x)))
+user_观看作品数 <- data.frame(uid = names(item_count), 观看作品数 = item_count)
+mydata2 <- merge(mydata1, user_观看作品数, by = 'uid')
+user_观看作品平均时长 <- aggregate(df$duration_time, by=list(uid=df$uid),mean)
+colnames(user_观看作品平均时长) <- c("uid", "观看作品平均时长")
+mydata3 <- merge(mydata2, user_观看作品平均时长, by = 'uid')
+music_count <- tapply(df$music_id, df$uid, function(x) length(unique(x)))
+user_观看配乐数 <- data.frame(uid = names(music_count), 观看配乐数 = music_count)
+mydata4 <- merge(mydata3, user_观看配乐数, by = 'uid')
+user_完整观看数 <- aggregate(df$finish, by=list(uid=df$uid),sum)
+colnames(user_完整观看数) <- c("uid", "完整观看数")
+mydata5 <- merge(mydata4, user_完整观看数, by = 'uid')
+user_city_count <- tapply(df$user_city, df$uid, function(x) length(unique(x)))
+user_去过的城市数 <- data.frame(uid = names(user_city_count), 去过的城市数 = user_city_count)
+mydata6 <- merge(mydata5, user_去过的城市数, by = 'uid')
+item_city_count <- tapply(df$item_city, df$uid, function(x) length(unique(x)))
+user_观看作品城市数 <- data.frame(uid = names(item_city_count), 观看作品城市数 = item_city_count)
+mydata7 <- merge(mydata6, user_观看作品城市数, by = 'uid')
+str(mydata7)
+any(is.na(mydata7))  # 检查是否有任何空值
+all(!is.na(mydata7))  # 检查是否所有值都不是空值
+summary(mydata7)
+```
+保存用户指标
+```{r}
+write.csv(mydata7, file = "用户特征.csv", row.names = FALSE)
+```
+开始探索性数据分析
+```{r}
+data <- read.csv("用户特征.csv",header = TRUE)
+```
+
+```{r}
+head(data)
+```
+用户浏览情况，绘制浏览量饼状图
+```{r}
+#不同浏览量用户占比
+library(ggplot2)
+data_processed <- data %>%
+  mutate(level = cut(浏览量, 
+                     breaks = c(0, 5, 10, 25, 50, 100, 1951),
+                     labels = c("0-5", "5-10", "10-25", "25-50", "50-100", "100-1951"),
+                     include.lowest = TRUE,
+                     right = FALSE))  # 对数据进行分组处理
+
+# 统计每个等级的数量
+count_by_level <- table(data_processed$level)
+count_df <- as.data.frame(count_by_level)
+colnames(count_df) <- c("level", "count")
+
+# 计算百分比
+count_df$percent <- with(count_df, count/sum(count)*100)
+
+# 使用ggplot绘制饼状图并添加百分比标签
+ggplot(count_df, aes(x="", y=percent, fill=level)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0) +
+  labs(title="Pie Chart of View Levels", fill="Level") +
+  scale_fill_brewer(palette="Set3") +
+  geom_text(aes(label = paste0(sprintf("%.1f", percent), "%")), position = position_stack(vjust = 0.5))
+```
+绘制浏览量累计分布曲线
+```{r}
+ggplot(data, aes(x=浏览量)) +
+  stat_ecdf(geom = "step", color = "blue") +
+  labs(title="Cumulative Distribution of View Count", x="View Count", y="Cumulative Probability")
+```
+绘制点赞量饼状图
+```{r}
+data_processed <- data %>%
+  mutate(level = cut(点赞量, 
+                     breaks = c(-Inf, 1, 2, 183),
+                     labels = c("0", "1", "2-183"),
+                     include.lowest = TRUE,
+                     right = FALSE))  # 对数据进行分组处理
+
+# 统计每个等级的数量
+count_by_level <- table(data_processed$level)
+count_df <- as.data.frame(count_by_level)
+colnames(count_df) <- c("level", "count")
+
+# 计算百分比
+count_df$percent <- with(count_df, count/sum(count)*100)
+
+# 使用ggplot绘制饼图并添加百分比标签
+ggplot(count_df, aes(x="", y=percent, fill=level)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y") +
+  labs(title="Pie Chart of Like Levels", fill="Level") +
+  scale_fill_brewer(palette="Set3") +
+  geom_text(aes(label = paste0(sprintf("%.1f", percent), "%")), position = position_stack(vjust = 0.5))
+```
+绘制浏览量累计曲线
+```{r}
+ggplot(data, aes(x=点赞量)) +
+  stat_ecdf(geom = "step", color = "blue") +
+  labs(title="Cumulative Distribution of Likes", x="Likes Count", y="Cumulative Probability") +
+  coord_cartesian(xlim = c(0, 20))
+```
+用户完整观看情况
+```{r}
+data_processed <- data %>%
+  mutate(level = cut(完整观看数, 
+                     breaks = c(0, 5, 10, 20, 30, 50, 284),
+                     labels = c("0-5", "5-10", "10-20", "20-30", "30-50", "50-284"),
+                     include.lowest = TRUE,
+                     right = FALSE))  # 对数据进行分组处理
+
+# 统计每个等级的数量
+count_by_level <- table(data_processed$level)
+count_df <- as.data.frame(count_by_level)
+colnames(count_df) <- c("level", "count")
+
+# 计算百分比
+count_df$percent <- with(count_df, count/sum(count)*100)
+
+# 使用ggplot绘制饼图并添加百分比标签
+ggplot(count_df, aes(x="", y=percent, fill=level)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y") +
+  labs(title="Pie Chart of Watch Completion Levels", fill="Level") +
+  scale_fill_brewer(palette="Set3") +
+  geom_text(aes(label = paste0(sprintf("%.1f", percent), "%")), position = position_stack(vjust = 0.5))
+```
+观看作品平均时长饼状图
+```{r}
+data_processed <- data %>%
+  mutate(level = cut(观看作品平均时长, 
+                     breaks = c(1, 10, 12, 15, 42),
+                     labels = c("1-10", "10-12", "12-15", "15-42"),
+                     include.lowest = TRUE,
+                     right = FALSE))  # 对数据进行分组处理
+
+# 统计每个等级的数量
+count_by_level <- table(data_processed$level)
+count_df <- as.data.frame(count_by_level)
+colnames(count_df) <- c("level", "count")
+
+# 计算百分比
+count_df$percent <- with(count_df, count/sum(count)*100)
+
+# 使用ggplot绘制饼图并添加百分比标签
+ggplot(count_df, aes(x="", y=percent, fill=level)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y") +
+  labs(title="Pie Chart of Average Watch Duration Levels", fill="Level") +
+  scale_fill_brewer(palette="Set3") +
+  geom_text(aes(label = paste0(sprintf("%.1f", percent), "%")), position = position_stack(vjust = 0.5))
+```
+用户去过的城市数分布
+```{r}
+city_count <- table(data$去过的城市数)
+city_count_df <- as.data.frame(city_count)
+colnames(city_count_df) <- c("city_count", "count")
+
+# 计算百分比
+city_count_df$percent <- with(city_count_df, count/sum(count)*100)
+
+# 使用ggplot绘制饼图并添加百分比标签
+ggplot(city_count_df, aes(x="", y=percent, fill=factor(city_count))) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y") +
+  labs(title="Pie Chart of Number of Cities Visited", fill="City Count") +
+  scale_fill_brewer(palette="Set3") +
+  geom_text(aes(label = paste0(sprintf("%.1f", percent), "%")), position = position_stack(vjust = 0.5))
+```
+用户观看的作品的城市数分布
+```{r}
+data_processed <- data %>%
+  mutate(level = cut(观看作品城市数, 
+                     breaks = c(1, 10, 20, 40, 60, 120),
+                     labels = c("1-10", "10-20", "20-40", "40-60", "60-120"),
+                     include.lowest = TRUE,
+                     right = FALSE))  # 对数据进行分组处理
+
+# 统计每个等级的数量
+count_by_level <- table(data_processed$level)
+count_df <- as.data.frame(count_by_level)
+colnames(count_df) <- c("level", "count")
+
+# 计算百分比
+count_df$percent <- with(count_df, count/sum(count)*100)
+
+# 使用ggplot绘制饼图并添加百分比标签
+ggplot(count_df, aes(x="", y=percent, fill=level)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y") +
+  labs(title="Pie Chart of Number of Cities Visited", fill="City Count") +
+  scale_fill_brewer(palette="Set3") +
+  geom_text(aes(label = paste0(sprintf("%.1f", percent), "%")), position = position_stack(vjust = 0.5))
+```
+增加筛选认为至少观看过一个完整短视频且有一定浏览量的用户
+```{r}
+filtered_data <- data[data$完整观看数 > 1 & data$浏览量 > 5, ]
+```
+选取中心数量从2个到9个，循环输出误差平方和和轮廓系数来比较聚类效果。
+```{r}
+library(factoextra)
+library(cluster)
+
+# 假设你的数据框为 filtered_data
+
+# 选择要聚类的列
+data_for_clustering <- filtered_data[, 2:10]
+
+# 初始化结果列表
+results <- list()
+
+# 从2到10尝试不同的聚类数
+for (k in 2:9) {
+  # 使用 kmeans 进行聚类
+  kmeans_result <- kmeans(data_for_clustering, centers = k, nstart = 25)
+  
+  # 计算误差平方和
+  wss <- sum(kmeans_result$withinss)
+  
+  # 计算轮廓系数
+  if (k > 1) {
+    silhouette <- silhouette(kmeans_result$cluster, dist(data_for_clustering))
+    avg_sil_width <- mean(silhouette[, "sil_width"])
+  } else {
+    avg_sil_width <- NA
+  }
+  
+  # 将结果存储在列表中
+  results[[as.character(k)]] <- list(wss = wss, silhouette = avg_sil_width)
+}
+
+# 输出结果
+for (k in 2:9) {
+  cat(paste("K =", k, ": WSS =", results[[as.character(k)]]$wss, ", Silhouette =", results[[as.character(k)]]$silhouette, "\n"))
+}
+```
+通过比较，聚类中心为4时，综合效果最好
+```{r}
+data_for_clustering <- filtered_data[, 2:10]
+
+# 使用 kmeans 进行聚类
+kmeans_result <- kmeans(data_for_clustering, centers = 4, nstart = 25)
+
+# 将聚类结果合并回原始数据框
+clustered_data <- cbind(filtered_data, Cluster = as.factor(kmeans_result$cluster))
+
+# 计算每一类的每个字段的平均值
+cluster_means <- aggregate(. ~ Cluster, data = clustered_data[, -1], FUN = mean)
+
+# 输出聚类结果
+print(cluster_means)
+```
+
